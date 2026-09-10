@@ -3,7 +3,7 @@
 // @namespace    https://spa.fenbi.com/
 // @version      0.2.3
 // @description  在粉笔网页版解析页恢复显示题友评论。
-// @author       commonplugin
+// @author       杭州第一深情
 // @match        https://spa.fenbi.com/ti/*
 // @connect      ke.fenbi.com
 // @connect      tiku.fenbi.com
@@ -288,7 +288,7 @@
       url.searchParams.set('ua', 'iPad');
       url.searchParams.set('av', '44');
       url.searchParams.set('version', '6.11.3');
-      // 保留旧版 iPad 客户端的重复参数；commonplugin 的兼容请求也使用此格式。
+      // 保留旧版 iPad 客户端的重复参数；scourgify 的兼容请求也使用此格式。
       url.searchParams.append('kav', '22');
       url.searchParams.append('kav', '1');
       url.searchParams.set('len', String(PAGE_SIZE));

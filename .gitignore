@@ -2,6 +2,9 @@
 /agents/
 /AGENTS.md
 
+# WorkBuddy 本地记忆：只在本地维护，不上传 GitHub
+/.workbuddy/
+
 # 系统与编辑器文件
 .DS_Store
 .vscode/

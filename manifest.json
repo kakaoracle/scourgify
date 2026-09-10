@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "kakaoracle",
-  "version": "0.13.0",
-  "description": "kakaoracle：粉笔、CSDN、知乎页面增强与 JSON 美化工具。",
+  "name": "哈利波特骑着扫帚飞",
+  "version": "0.15.0",
+  "description": "哈利波特骑着扫帚飞：粉笔、CSDN、知乎页面增强、JSON 美化、广告过滤与密码自动填充工具。",
   "permissions": [
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "https://spa.fenbi.com/*",
@@ -13,13 +14,16 @@
     "https://www.zhihu.com/*",
     "https://tiku.fenbi.com/*",
     "https://ke.fenbi.com/*",
-    "https://keapi.fenbi.com/*"
+    "https://keapi.fenbi.com/*",
+    "https://easylist-downloads.adblockplus.org/*",
+    "https://adrules.top/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "kakaoracle",
+    "default_title": "哈利波特骑着扫帚飞",
     "default_popup": "popup.html"
   },
   "content_scripts": [
@@ -32,12 +36,25 @@
         "https://*/*"
       ],
       "js": [
+        "ad-routes.js",
         "content.js"
       ],
       "css": [
         "content.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "autofill.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ]
 }

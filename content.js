@@ -4,7 +4,7 @@ const PANEL_ATTR = 'data-fcp-comments';
 const PAGE_SIZE = 30;
 const MAX_PAGES = 2;
 const questionIdMapCache = new Map();
-let settings = { fenbiEnabled:true, forceCommentsEnabled:false, hideVideo:false, monochrome:false, aiLectureOptimizationEnabled:false, csdnEnabled:true, csdnBeautify:true, csdnMonochrome:false, csdnPosition:'center', zhihuEnabled:true, zhihuComments:true, zhihuMonochrome:false, commonEnabled:true, commonMonochrome:false };
+let settings = { fenbiEnabled:true, forceCommentsEnabled:false, hideVideo:false, monochrome:false, aiLectureOptimizationEnabled:false, csdnEnabled:true, csdnBeautify:true, csdnMonochrome:false, csdnPosition:'center', zhihuEnabled:true, zhihuComments:true, zhihuMonochrome:false, commonEnabled:true, commonMonochrome:false, adFilterEnabled:true };
 
 function isCsdnPage() {
   return location.hostname === 'blog.csdn.net';
@@ -917,7 +917,7 @@ async function loadQuestionIdMap() {
     if (deviceId) url.searchParams.set('deviceId',deviceId);
     const solutionPayload = await requestJson(url.href);
     const solution = solutionPayload?.data ?? solutionPayload;
-    return {map:await mapFromLegacyReport(solution,params),strategy:'commonplugin-legacy-report'};
+    return {map:await mapFromLegacyReport(solution,params),strategy:'scourgify-legacy-report'};
   })();
   questionIdMapCache.set(cacheKey,loading);
   try { return await loading; } catch (error) { questionIdMapCache.delete(cacheKey); throw error; }
@@ -1077,6 +1077,133 @@ function applyCommonMonochrome() {
   document.documentElement.classList.toggle('kakaoracle-common-monochrome', Boolean(isGenericTarget() && settings.commonEnabled && settings.commonMonochrome));
 }
 
+// ---------------- 广告过滤 ----------------
+// 三层结构：内置基础规则（最保守的通用签名）→ 订阅源（background.js 拉取，存 storage.local）
+// → 个性化路由表（ad-routes.js，按站点精修）。仅在通用站点生效，粉笔/CSDN/知乎不受影响。
+const AD_FILTER_STYLE_ID = 'kakaoracle-adfilter-style';
+const AD_DATA_KEY = 'adFilterData';
+const AD_BASE_SELECTORS = [
+  'ins.adsbygoogle',
+  'iframe[src*="googlesyndication.com"]', 'iframe[src*="doubleclick.net"]',
+  'iframe[src*="googleadservices.com"]', 'iframe[src*="adnxs.com"]',
+  'iframe[src*="popads.net"]', 'iframe[src*="propellerads"]',
+  'iframe[src*="clickadu"]', 'iframe[src*="exoclick"]', 'iframe[src*="juicyads"]',
+  'div[id^="div-gpt-ad"]', 'div[id^="google_ads"]', 'div[class*="adsbygoogle"]',
+  'a[href*="doubleclick.net"]',
+];
+const AD_BASE_HOSTS = [
+  'googlesyndication.com', 'doubleclick.net', 'googleadservices.com', 'googletagservices.com',
+  'adnxs.com', 'adsrvr.org', 'pubmatic.com', 'criteo.com', 'criteo.net', 'amazon-adsystem.com',
+  'taboola.com', 'outbrain.com', 'popads.net', 'popcash.net', 'propellerads.com',
+  'clickadu.com', 'exoclick.com', 'juicyads.com', 'adcash.com', 'hilltopads.net',
+];
+let adFilterData = { selectors: [], hostSelectors: [], exceptions: [], hosts: [] };
+let adFilterSiteOverrides = {};
+let adFilterVersion = 0;
+let adFilterCssCache = { key: '', css: '' };
+
+function hostMatchesSuffix(hostname, suffix) {
+  return hostname === suffix || hostname.endsWith(`.${suffix}`);
+}
+
+function resolveAdFilterRoute() {
+  const host = location.hostname;
+  const mergeEntry = (base, extra) => ({
+    ...base, ...extra,
+    selectors: [...(base?.selectors || []), ...(extra?.selectors || [])],
+    blockHosts: [...(base?.blockHosts || []), ...(extra?.blockHosts || [])],
+    whitelist: [...(base?.whitelist || []), ...(extra?.whitelist || [])],
+  });
+  const fileRoute = (self.KAKAORACLE_AD_ROUTES || []).find(entry =>
+    Array.isArray(entry?.match) && entry.match.some(suffix => typeof suffix === 'string' && hostMatchesSuffix(host, suffix))) || null;
+  const overrideKey = Object.keys(adFilterSiteOverrides).find(key => hostMatchesSuffix(host, key));
+  const override = overrideKey ? adFilterSiteOverrides[overrideKey] : null;
+  if (!fileRoute && !override) return null;
+  return mergeEntry(fileRoute, override);
+}
+
+function buildAdFilterCss(route) {
+  // CSS 构建要遍历全部订阅选择器，用版本号 + 路由快照做缓存，
+  // 避免每次 DOM 变化都重算。
+  const cacheKey = `${adFilterVersion}|${route ? JSON.stringify(route) : ''}`;
+  if (adFilterCssCache.key === cacheKey) return adFilterCssCache.css;
+  const whitelist = new Set(route?.whitelist || []);
+  const exceptionSet = new Set(adFilterData.exceptions || []);
+  const selectors = [];
+  const seen = new Set();
+  const push = selector => {
+    if (!selector || seen.has(selector) || whitelist.has(selector) || exceptionSet.has(selector)) return;
+    seen.add(selector);
+    selectors.push(selector);
+  };
+  if (!route || route.subscription !== false) {
+    AD_BASE_SELECTORS.forEach(push);
+    (adFilterData.selectors || []).forEach(push);
+    for (const item of (adFilterData.hostSelectors || [])) {
+      if (hostMatchesSuffix(location.hostname, item.h)) push(item.s);
+    }
+  }
+  (route?.selectors || []).forEach(push);
+  const css = selectors.length
+    ? selectors.reduce((chunks, selector, index) => {
+        const slot = Math.floor(index / 50);
+        chunks[slot] = chunks[slot] ? `${chunks[slot]},${selector}` : selector;
+        return chunks;
+      }, []).map(chunk => `${chunk}{display:none!important}`).join('\n')
+    : '';
+  adFilterCssCache = { key: cacheKey, css };
+  return css;
+}
+
+function adBlockedHostSet(route, active) {
+  const hostSet = new Set(AD_BASE_HOSTS);
+  if (!active) return hostSet;
+  if (!route || route.subscription !== false) {
+    for (const host of (adFilterData.hosts || [])) hostSet.add(host);
+  }
+  for (const host of (route?.blockHosts || [])) hostSet.add(host);
+  return hostSet;
+}
+
+function applyAdFilterFrames(route, active) {
+  const hostSet = adBlockedHostSet(route, active);
+  for (const frame of document.querySelectorAll('iframe,embed,object')) {
+    if (frame.dataset.kakaoracleAdframe) continue;
+    let url;
+    try { url = new URL(frame.getAttribute('src') || frame.getAttribute('data') || '', location.href); } catch { url = null; }
+    if (!url || !hostMatchesSuffixChain(url.hostname, hostSet)) continue;
+    frame.dataset.kakaoracleAdframe = 'blocked';
+    frame.remove();
+  }
+}
+
+function hostMatchesSuffixChain(hostname, hostSet) {
+  const parts = hostname.split('.');
+  for (let index = 0; index < parts.length; index++) {
+    if (hostSet.has(parts.slice(index).join('.'))) return true;
+  }
+  return false;
+}
+
+function applyAdFilter() {
+  let active = Boolean(isGenericTarget() && settings.adFilterEnabled);
+  const route = active ? resolveAdFilterRoute() : null;
+  if (route?.enabled === false) active = false;
+  const css = active ? buildAdFilterCss(route) : '';
+  let style = document.getElementById(AD_FILTER_STYLE_ID);
+  if (!css) {
+    style?.remove();
+  } else {
+    if (!style) {
+      style = document.createElement('style');
+      style.id = AD_FILTER_STYLE_ID;
+      document.documentElement.appendChild(style);
+    }
+    style.textContent = css;
+  }
+  applyAdFilterFrames(route, active);
+}
+
 function applyAllFeatures() {
   // 无视觉副作用的运行标记：用于确认内容脚本已在粉笔页面执行。
   document.documentElement.dataset.kakaoracleFenbiRuntime = isFenbiPage() ? 'ready' : '';
@@ -1085,6 +1212,7 @@ function applyAllFeatures() {
   applyCsdnBeautify();
   applyZhihuSettings();
   applyCommonMonochrome();
+  applyAdFilter();
   applyAiLectureOptimization();
 }
 
@@ -1110,9 +1238,26 @@ chrome.storage.sync.get(settings,result=>{
   applyAllFeatures();
 });
 
+// 订阅数据与站点覆盖配置分别就绪后再应用一次广告过滤。
+chrome.storage.local.get({ [AD_DATA_KEY]: null }, stored => {
+  if (stored[AD_DATA_KEY]) { adFilterData = stored[AD_DATA_KEY]; adFilterVersion++; }
+  applyAdFilter();
+});
+
+chrome.storage.sync.get({ adFilterSiteOverrides: {} }, stored => {
+  adFilterSiteOverrides = stored.adFilterSiteOverrides || {};
+  adFilterVersion++;
+  applyAdFilter();
+});
+
 chrome.storage.onChanged.addListener((changes,areaName)=>{
+  if (areaName==='local') {
+    if (changes[AD_DATA_KEY]) { adFilterData = changes[AD_DATA_KEY].newValue || adFilterData; adFilterVersion++; applyAdFilter(); }
+    return;
+  }
   if (areaName!=='sync') return;
-  for (const key of ['fenbiEnabled','forceCommentsEnabled','hideVideo','monochrome','aiLectureOptimizationEnabled','csdnEnabled','csdnBeautify','csdnMonochrome','csdnPosition','zhihuEnabled','zhihuComments','zhihuMonochrome','commonEnabled','commonMonochrome']) {
+  if (changes.adFilterSiteOverrides) { adFilterSiteOverrides = changes.adFilterSiteOverrides.newValue || {}; adFilterVersion++; }
+  for (const key of ['fenbiEnabled','forceCommentsEnabled','hideVideo','monochrome','aiLectureOptimizationEnabled','csdnEnabled','csdnBeautify','csdnMonochrome','csdnPosition','zhihuEnabled','zhihuComments','zhihuMonochrome','commonEnabled','commonMonochrome','adFilterEnabled']) {
     if (changes[key]) settings[key]=changes[key].newValue;
   }
   if (!settings.fenbiEnabled || !settings.forceCommentsEnabled) removePanels(); else enhanceQuestions();
