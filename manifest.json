@@ -1,8 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "哈利波特骑着扫帚飞",
-  "version": "0.15.0",
-  "description": "哈利波特骑着扫帚飞：粉笔、CSDN、知乎页面增强、JSON 美化、广告过滤与密码自动填充工具。",
+  "name": "扫地僧",
+  "version": "1.0.0",
+  "description": "扫地僧：网页阅读净化工具，一把扫帚走江湖。\n\n· 粉笔 / CSDN / 知乎：隐藏广告位、置顶正文、强开评论、页面黑白、隐藏解析视频\n· 通用广告过滤：内置基础规则 + EasyList China + AdRules 订阅（每日自动更新，关闭开关即停）\n· 钥匙串：解开 autocomplete 符文，本地凭据可选填充（默认关闭，凭据只存浏览器本地，不联网）\n· JSON 美化、页面黑白、隐藏视频：所有开关在 popup\n\n完全本地工作：用户设置、过滤规则缓存、可选凭据都只存浏览器本地，不上传任何开发者服务器。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "storage",
     "alarms"
@@ -23,7 +29,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "哈利波特骑着扫帚飞",
+    "default_title": "扫地僧",
     "default_popup": "popup.html"
   },
   "content_scripts": [
